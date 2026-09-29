@@ -2,6 +2,28 @@
 
 > `v0.4.13` is the first public-beta/stabilization release prepared for a public GitHub repository. Public-release hygiene (license, CI, contribution/security docs, templates) does not change runtime behavior.
 
+## 0.4.15 — Wait-Neutral Attempts
+
+- Fixed a bookkeeping defect where a slice that paused on an internal/external/environment WAIT could resume as attempt 2 and silently escalate `terra-medium → terra-high`.
+- WAIT causes that are not implementation failures (`internal_dependency`, `external_dependency`, `environment`, `credential`, `product_decision`, `unsafe_action`) now refund the current attempt exactly once.
+- Added v0.4.14 state repair: legacy waiting slices/milestones are normalized on wake without repeating completed work or double-refunding attempts.
+- Transport failures before thread start remain attempt-neutral. `orchestration_budget` is intentionally not neutralized.
+- Added explicit escalation logging whenever the actual model differs from the slice's base route.
+- Added regression coverage for neutral waits and dependency-wake migration.
+- Model routing, dependency DAG, slicing, cost budgets and validation policy are otherwise unchanged.
+
+## 0.4.14 — Dependency-Aware Scheduler
+
+- Add explicit `dependsOnTaskIds` to every planned/replanned task and validate the resulting DAG.
+- Make dependency readiness the first scheduler criterion; milestone priority now only orders the ready queue.
+- Park downstream work as `internal_dependency` rather than executing it prematurely.
+- Detect runtime-discovered in-plan prerequisites from structured blocker output / referenced `TASK-*` IDs and add them to the DAG.
+- Auto-unblock internal waiters as soon as prerequisite tasks become `done`/`superseded`; no `--retry-blocked` or manual `mvpx unblock` is required.
+- Keep true external dependencies separate and human-actionable.
+- Reject unknown dependency IDs, self-dependencies, and dependency cycles deterministically.
+- Migrate the observed v0.4.13 empty-repository state where M-003/M-002 were incorrectly frozen as external even though TASK-001/TASK-002 were internal prerequisites.
+- Add dependency scheduler regression tests and config version 12.
+
 ## 0.4.13 — Fresh Targeted Repairs
 
 - Start every final-validation repair attempt in a fresh Codex thread, including attempt 1.

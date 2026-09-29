@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { CodexRunner } from "./codex/runner.js";
 import { costProfileForPlanner, loadCostHistory, summarizeCostHistory } from "./cost/history.js";
+import { unresolvedMilestoneDependencies } from "./dependencies.js";
 import { rollbackToCheckpoint } from "./git/checkpoints.js";
 import { refreshMemoryFiles } from "./memory/store.js";
 import { runOrchestrator } from "./orchestrator.js";
@@ -95,7 +96,7 @@ function resetMilestone(state: ProjectState, milestone: Milestone): void {
 program
   .name("mvpx")
   .description("Bounded-context, checkpointed Codex orchestration for software repositories")
-  .version("0.4.13");
+  .version("0.4.15");
 
 program
   .command("init")
@@ -210,7 +211,7 @@ program
       await saveState(state); // Persists any legacy -> v0.4.2 migration immediately.
     }
 
-    console.log("Context policy: bounded + decision-complete hierarchical slices + scoped execution + progress-aware activity guard");
+    console.log("Context policy: dependency-aware DAG + bounded decision-complete slices + scoped execution + progress-aware activity guard");
     console.log(`Planner: ${config.plannerModel} (${config.plannerReasoningEffort})`);
     console.log(`Simple slice: ${config.simpleImplementerModel} (${config.simpleImplementerReasoningEffort})`);
     console.log(`Scoped / decision-complete slice: ${config.scopedImplementerModel} (${config.scopedImplementerReasoningEffort})`);
@@ -260,7 +261,10 @@ program
       console.log(`${milestoneIcon(milestone)} ${milestone.id} [${milestone.status}] ${milestone.title}`);
       for (const id of milestone.taskIds) {
         const task = state.tasks.find((item) => item.id === id);
-        if (task) console.log(`    ${task.status === "done" ? "✓" : task.status === "waiting" ? "⏸" : "·"} ${task.id} [${task.status}] ${task.title}`);
+        if (task) {
+          const deps = (task.dependsOnTaskIds ?? []).length > 0 ? ` | depends on ${(task.dependsOnTaskIds ?? []).join(", ")}` : "";
+          console.log(`    ${task.status === "done" ? "✓" : task.status === "waiting" ? "⏸" : "·"} ${task.id} [${task.status}] ${task.title}${deps}`);
+        }
       }
       if ((milestone.fileScope ?? []).length > 0) console.log(`    Scope: ${milestone.fileScope!.join(", ")}`);
       console.log(`    Route: ${milestone.complexity ?? "normal"}/${milestone.risk ?? "medium"} | ${milestone.implementationLane ?? "unassigned"} | ~${milestone.estimatedFiles ?? "?"} files${milestone.predictedInputTokens ? ` | predicted ~${Math.round(milestone.predictedInputTokens / 1000).toLocaleString()}k input` : ""}`);
@@ -341,7 +345,13 @@ program
     for (const milestone of blocked) {
       console.log(`${milestone.id} [${milestone.blockerType ?? "unknown"}] ${milestone.title}`);
       console.log(`  ${milestone.blocker ?? "No blocker detail."}`);
-      console.log(`  Retry only after resolution: mvpx unblock ${milestone.id}`);
+      if (milestone.blockerType === "internal_dependency") {
+        const unresolved = unresolvedMilestoneDependencies(state, milestone);
+        console.log(`  Internal prerequisites: ${unresolved.join(", ") || "already satisfied; next run will auto-resume"}`);
+        console.log("  No manual retry required; MVPX resumes automatically when prerequisites are done.");
+      } else {
+        console.log(`  Retry only after external resolution: mvpx unblock ${milestone.id}`);
+      }
     }
   });
 
@@ -358,6 +368,9 @@ program
     if (!milestone) throw new Error(`Unknown milestone: ${milestoneId}`);
     if (milestone.status !== "waiting" && milestone.status !== "blocked") {
       throw new Error(`${milestoneId} is not waiting/blocked.`);
+    }
+    if (milestone.blockerType === "internal_dependency") {
+      throw new Error(`${milestoneId} is waiting on internal prerequisites and will resume automatically; manual unblock is not needed.`);
     }
     resetMilestone(state, milestone);
     state.status = "idle";

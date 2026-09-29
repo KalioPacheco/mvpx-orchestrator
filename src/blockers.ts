@@ -56,6 +56,7 @@ function matches(text: string, patterns: RegExp[]): boolean {
 }
 
 export function inferBlockerType(text: string | undefined | null, suggested?: BlockerType | null): BlockerType {
+  if (suggested === "internal_dependency") return "internal_dependency";
   const value = text ?? "";
   if (matches(value, ENVIRONMENT_PATTERNS)) return "environment";
   if (matches(value, CREDENTIAL_PATTERNS)) return "credential";
@@ -74,5 +75,5 @@ export function gateFailureLooksEnvironmental(results: GateResult[]): boolean {
 }
 
 export function blockerNeedsExplicitRetry(type: BlockerType | undefined): boolean {
-  return type !== undefined;
+  return type !== undefined && type !== "internal_dependency";
 }

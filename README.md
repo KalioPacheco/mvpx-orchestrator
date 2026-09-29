@@ -2,7 +2,7 @@
 
 **Cost-aware autonomous orchestration for Codex.** MVPX turns a high-level software goal into bounded plans, execution slices, deterministic validation, targeted repairs, checkpoints, and resumable progress—without requiring a human to keep typing “continue”.
 
-> **Status:** public beta / stabilization candidate (`v0.4.13`). The single-worker architecture is intentionally being stabilized before any parallel-worktree release.
+> **Status:** public beta / stabilization candidate (`v0.4.15`). The single-worker architecture is intentionally being stabilized before any parallel-worktree release.
 
 MVPX is an independent open-source project. It is not affiliated with or endorsed by OpenAI.
 
@@ -14,6 +14,8 @@ Long-running agent work tends to fail in one of two ways: the human has to super
 goal
   ↓
 Luna Medium planner
+  ↓
+dependency-ready DAG scheduler
   ↓
 bounded milestones
   ↓
@@ -33,6 +35,7 @@ done / resumable pause / explicit external blocker
 
 ## Highlights
 
+- **Dependency-aware scheduling:** explicit task prerequisites form a DAG; only ready work can execute, and internal waiters auto-resume when prerequisites finish.
 - **Bounded context:** fresh implementation threads instead of one ever-growing project conversation.
 - **Hierarchical decomposition:** broad work is split by a technical lead into buildable execution slices.
 - **Adaptive model routing:** inexpensive models handle work only when the risk and scope justify it.
@@ -69,7 +72,7 @@ mvpx --version
 Expected for this release:
 
 ```text
-0.4.13
+0.4.15
 ```
 
 `npm install` runs the `prepare` script and builds the TypeScript sources. The repository is intentionally not published to npm yet; cloning from GitHub is the supported public-beta installation path.
@@ -109,7 +112,7 @@ For long goals stored in a file, current shells can pass the file content direct
 mvpx analyze --goal "$(cat goal.md)"
 ```
 
-A native `--goal-file` option is not part of v0.4.13 yet.
+A native `--goal-file` option is not part of v0.4.15 yet.
 
 ## Main commands
 
@@ -167,6 +170,14 @@ MVPX is still an automation layer around an AI coding agent. Review diffs before
 
 Routing is deliberately conservative. `normal` is the safe default, and critical-domain rules override cost optimization.
 
+## Dependency-aware scheduling
+
+Every planned task carries `dependsOnTaskIds`. MVPX validates the graph before implementation, parks downstream work as `internal_dependency`, and selects only milestones whose prerequisites are complete. Priority is used only inside the ready queue.
+
+If an implementation discovers a missing in-plan prerequisite at runtime, it can return `internal_dependency` with the prerequisite `TASK-*` IDs. MVPX adds those edges, schedules the prerequisite, and resumes the waiting milestone automatically. `external_dependency` is reserved for conditions outside the current task graph.
+
+Cycles and unknown task IDs are rejected deterministically before further implementation work.
+
 ## Run budget and cost history
 
 The default run budget is token-first rather than turn-count-first:
@@ -217,7 +228,7 @@ These are **observational development measurements**, not universal performance 
 
 ## Project maturity and roadmap
 
-`v0.4.13` is the stabilization candidate for the single-worker architecture. The current rule is intentionally conservative: use the single-worker path across real projects and fix evidence-backed defects before adding parallel worktrees.
+`v0.4.15` is the stabilization candidate for the single-worker architecture. WAIT states are attempt-neutral: dependency/environment/user-action pauses do not advance model escalation, while genuine gate/implementation failures still do. The current rule is intentionally conservative: use the single-worker path across real projects and fix evidence-backed defects before adding parallel worktrees.
 
 The next major architecture milestone (`v0.5`) is expected to explore parallel worktrees only after the 0.4.x path demonstrates stable daily use.
 

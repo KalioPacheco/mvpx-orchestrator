@@ -6,8 +6,9 @@ const taskShape = {
     description: { type: "string" },
     priority: { type: "integer", minimum: 1, maximum: 100 },
     acceptanceCriteria: { type: "array", items: { type: "string" } },
+    dependsOnTaskIds: { type: "array", items: { type: "string" } },
   },
-  required: ["id", "title", "description", "priority", "acceptanceCriteria"],
+  required: ["id", "title", "description", "priority", "acceptanceCriteria", "dependsOnTaskIds"],
   additionalProperties: false,
 } as const;
 
@@ -32,7 +33,7 @@ const milestoneShape = {
 
 const blockerTypeShape = {
   type: "string",
-  enum: ["environment", "credential", "product_decision", "unsafe_action", "external_dependency", "orchestration_budget", "unknown"],
+  enum: ["environment", "credential", "product_decision", "unsafe_action", "external_dependency", "internal_dependency", "orchestration_budget", "unknown"],
 } as const;
 
 export const planSchema = {

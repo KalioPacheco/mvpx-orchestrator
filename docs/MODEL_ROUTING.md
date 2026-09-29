@@ -4,7 +4,7 @@
 
 Use the **cheapest sufficient intelligence with conservative promotion rules**. MVPX never sends risky work to a cheaper model merely because it might save quota.
 
-v0.4.13 preserves decision-complete per-slice routing and adds fresh-thread final validation repairs; model choice still follows the conservative execution policy below:
+v0.4.15 preserves the v0.4.14 model-routing policy and makes WAIT states attempt-neutral; dependency readiness is resolved deterministically before any lane is selected; model choice still follows the conservative execution policy below:
 
 | Role | Model | Reasoning | Rule |
 |---|---|---|---|
@@ -133,3 +133,7 @@ Model selection remains the v0.4.10 decision-complete policy. Budgeting is indep
 ## Fresh validation repairs (v0.4.13)
 
 Final gate repair model selection is unchanged (`Terra High`, escalating to `Sol High` at the configured retry threshold), but thread reuse is removed. Attempt 1, attempt 2 and escalation attempts each start in a fresh thread. The current gate failure and previous-attempt summary provide continuity. This deliberately trades conversational continuity for a smaller, more relevant context window.
+
+### Wait-neutral escalation rule
+
+`internal_dependency`, `external_dependency`, `environment`, `credential`, `product_decision`, and `unsafe_action` do not count as failed implementation attempts. They therefore do not promote a slice to a stronger model. Only real implementation/gate failures advance the escalation ladder. `orchestration_budget` is intentionally excluded.

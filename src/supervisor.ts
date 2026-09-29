@@ -1,14 +1,9 @@
 import { CodexRunner, type PlanResponse, type ReplanResponse } from "./codex/runner.js";
+import { assertValidDependencyGraph, reconcileInternalDependencies, selectNextReadyMilestone } from "./dependencies.js";
 import type { Milestone, ProjectState, Task } from "./types.js";
 
 export function nextMilestone(state: ProjectState): Milestone | undefined {
-  return state.milestones
-    .filter((milestone) => milestone.status === "todo" || milestone.status === "failed")
-    .filter((milestone) => milestone.taskIds.some((id) => {
-      const task = state.tasks.find((item) => item.id === id);
-      return task && (task.status === "todo" || task.status === "failed" || task.status === "running");
-    }))
-    .sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))[0];
+  return selectNextReadyMilestone(state);
 }
 
 function flattenPlan(plan: PlanResponse): { tasks: Task[]; milestones: Milestone[] } {
@@ -21,6 +16,7 @@ function flattenPlan(plan: PlanResponse): { tasks: Task[]; milestones: Milestone
       taskIds.push(task.id);
       tasks.push({
         ...task,
+        dependsOnTaskIds: Array.from(new Set(task.dependsOnTaskIds ?? [])),
         status: "todo",
         attempts: 0,
         milestoneId: milestone.id,
@@ -58,8 +54,9 @@ export async function createInitialState(
   const analysis = await runner.analyze(goal);
   const now = new Date().toISOString();
   const flattened = flattenPlan(analysis.result);
+  assertValidDependencyGraph(flattened.tasks);
 
-  return {
+  const state: ProjectState = {
     version: 4,
     projectRoot: root,
     goal,
@@ -87,6 +84,8 @@ export async function createInitialState(
     lastMessage: analysis.result.summary,
     projectThreadId: undefined,
   };
+  reconcileInternalDependencies(state);
+  return state;
 }
 
 function uniqueMilestoneId(base: string, occupied: Set<string>): string {
@@ -144,6 +143,7 @@ export function applyReplan(state: ProjectState, replan: ReplanResponse): void {
       const existing = existingById.get(plannedTask.id);
       replannedTasks.push({
         ...plannedTask,
+        dependsOnTaskIds: Array.from(new Set([...(existing?.dependsOnTaskIds ?? []), ...(plannedTask.dependsOnTaskIds ?? [])])),
         status: "todo",
         attempts: existing?.attempts ?? 0,
         milestoneId,
@@ -209,8 +209,11 @@ export function applyReplan(state: ProjectState, replan: ReplanResponse): void {
     });
   }
 
-  state.tasks = [...preservedTasks, ...replannedTasks, ...omittedExecutable];
+  const nextTasks = [...preservedTasks, ...replannedTasks, ...omittedExecutable];
+  assertValidDependencyGraph(nextTasks);
+  state.tasks = nextTasks;
   state.milestones = [...preservedMilestones, ...replannedMilestones];
+  reconcileInternalDependencies(state);
   state.needsReplan = false;
   state.milestonesSinceReplan = 0;
   state.lastMessage = replan.summary;

@@ -1,5 +1,29 @@
+# Dependencies / build output
 node_modules/
 dist/
+coverage/
+*.tsbuildinfo
+
+# MVPX target-project state
+.mvpx/
+
+# Local configuration / secrets
 .env
-.DS_Store
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs / package artifacts
 *.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.tgz
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

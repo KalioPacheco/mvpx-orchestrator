@@ -57,4 +57,4 @@
 
 ## Roadmap gate
 
-- Treat v0.4.13 as the 0.4.x stabilization candidate. Do not add parallel agents/worktrees until fresh targeted repairs have been exercised across real projects and the single-worker path is stable. Parallelizing an inefficient worker only burns quota faster.
+- Treat v0.4.15 as the 0.4.x stabilization candidate. Do not add parallel agents/worktrees until dependency-aware scheduling and fresh targeted repairs have been exercised across real projects and the single-worker path is stable. Parallelizing an inefficient worker only burns quota faster.

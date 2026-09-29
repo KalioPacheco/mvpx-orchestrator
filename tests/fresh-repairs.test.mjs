@@ -6,7 +6,7 @@ import path from 'node:path';
 import { loadConfig } from '../dist/state/store.js';
 import { loadCostHistory, recordValidationRepairCost, summarizeCostHistory } from '../dist/cost/history.js';
 
-test('v0.4.12 config migrates to fresh-repair settings', async () => {
+test('legacy config migrates to current fresh-repair settings', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'mvpx-repair-config-'));
   try {
     await mkdir(path.join(root, '.mvpx'), { recursive: true });
@@ -16,7 +16,7 @@ test('v0.4.12 config migrates to fresh-repair settings', async () => {
       maxRetries: 3,
     }));
     const config = await loadConfig(root);
-    assert.equal(config.configVersion, 11);
+    assert.equal(config.configVersion, 13);
     assert.equal(config.finalRepairMemoryMaxChars, 6000);
     assert.equal(config.maxRetries, 3);
   } finally {

@@ -278,3 +278,18 @@ The backend resumed with all 8 implementation tasks complete and final validatio
 Run delta: **2 AI repair turns**, **1,895,125 input**, 91% cached, 0 guard trips. The first targeted repair reused the existing final-repair thread/context and consumed **1,631,843 input** but did not close the gate. Because it crossed the high-context threshold, attempt 2 rotated to a fresh thread and consumed only **263,282 input**, after which the test gate passed. The fresh attempt used about **84% less input** than the resumed attempt; the first turn represented about 86% of total repair input.
 
 Finding: evidence-aware validation routing is correct, but waiting until a repair becomes high-context before rotating wastes quota. v0.4.13 therefore starts **every** targeted final-validation repair attempt fresh and transfers only a compact repair contract between attempts. This is the final planned 0.4.x optimization before a stability period.
+
+
+## v0.4.13 empty-repository dependency-order stress case (2026-09-29)
+
+A mission against a repository starting effectively empty moved from **96% to 73%** of the observed usage window (23 quota points). Run delta: **12 completed AI turns**, **2,399,525 input**, 81% cached, 0 guard trips.
+
+The routing itself behaved well, but scheduler order was wrong: M-003 executed first and later waited for TASK-001/TASK-002; M-002 then executed and waited for TASK-001; only then did M-001 build the foundational package boundaries. The run ended with `Done: 1 | Waiting: 2 | Remaining: 0` and incorrectly described the two waits as requiring external intervention.
+
+Finding: priority-only milestone selection allowed downstream work to run before prerequisites. More than 1M input was spent on M-003/M-002 before the foundational M-001 task was complete. This motivated v0.4.14: explicit task dependencies, DAG validation, internal wait states and automatic downstream wake-up.
+
+### v0.4.14 dependency wake validation
+
+Observed on the same from-scratch project after installing dependencies: 99% → 79% quota, 9 AI turns, 3.136M input, 86% cached, 0 guard trips. M-002 completed before M-003 and the scheduler automatically released the downstream milestone. Final validation repaired a code failure in one fresh targeted repair (83,882 input).
+
+The run exposed one remaining accounting defect: two previously waiting slices displayed `terra-medium` routing but executed on Terra High because the earlier WAIT had incremented their attempt counter. This motivated v0.4.15.

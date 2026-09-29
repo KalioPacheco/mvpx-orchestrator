@@ -1,4 +1,6 @@
 import { inferBlockerType, gateFailureLooksEnvironmental } from "./blockers.js";
+import { isWaitNeutralBlocker, neutralizeMilestoneWaitAttempt, neutralizeSliceWaitAttempt, prepareMilestoneAfterWait, prepareSliceAfterWait } from "./attempts.js";
+import { assertValidDependencyGraph, reconcileInternalDependencies, registerRuntimeInternalDependencies, unresolvedMilestoneDependencies } from "./dependencies.js";
 import { CodexRunner, CodexTransportStartupError, TurnGuardExceededError, type FinalRepairResponse, type MilestoneResponse, type RunnerResult, type SlicePlanResponse, type SliceResponse } from "./codex/runner.js";
 import { createCheckpoint, listChangesSinceCheckpoint, rollbackToCheckpoint } from "./git/checkpoints.js";
 import { backfillSliceCostHistory, costProfileForPlanner, estimateMilestoneInputTokens, estimateSliceInputTokens, loadCostHistory, recordMilestoneCost, recordSliceCost, recordValidationRepairCost } from "./cost/history.js";
@@ -142,7 +144,24 @@ function freezeMilestone(
   blocker: string,
   suggestedType?: BlockerType | null,
 ): void {
-  const blockerType = inferBlockerType(blocker, suggestedType);
+  const dependencyRegistration = registerRuntimeInternalDependencies(state, milestone, blocker, suggestedType);
+  if (dependencyRegistration.cycle) {
+    milestone.status = "blocked";
+    milestone.blocker = dependencyRegistration.cycle;
+    milestone.blockerType = "unknown";
+    for (const id of milestone.taskIds) {
+      const task = state.tasks.find((item) => item.id === id);
+      if (task && task.status !== "done" && task.status !== "superseded") {
+        task.status = "blocked";
+        task.blocker = dependencyRegistration.cycle;
+        task.blockerType = "unknown";
+      }
+    }
+    return;
+  }
+  const blockerType = dependencyRegistration.dependencyIds.length > 0
+    ? "internal_dependency"
+    : inferBlockerType(blocker, suggestedType);
   milestone.status = "waiting";
   milestone.blocker = blocker;
   milestone.blockerType = blockerType;
@@ -173,28 +192,32 @@ function hardBlockMilestone(state: ProjectState, milestone: Milestone, blocker: 
 function retryBlockedWork(state: ProjectState): number {
   let count = 0;
   for (const milestone of state.milestones) {
-    if (milestone.status === "waiting" || milestone.status === "blocked") {
+    if ((milestone.status === "waiting" || milestone.status === "blocked") && milestone.blockerType !== "internal_dependency") {
       milestone.status = "todo";
       milestone.blocker = undefined;
       milestone.blockerType = undefined;
       milestone.threadId = undefined;
       milestone.lastTurnInputTokens = undefined;
-      milestone.attempts = 0;
+      if (isWaitNeutralBlocker(milestone.blockerType)) prepareMilestoneAfterWait(milestone);
+      else milestone.attempts = 0;
+      milestone.waitAttemptNeutralized = undefined;
       count += 1;
     }
     for (const slice of milestone.executionSlices ?? []) {
-      if (slice.status === "waiting" || slice.status === "blocked") {
+      if ((slice.status === "waiting" || slice.status === "blocked") && slice.blockerType !== "internal_dependency") {
         slice.status = "todo";
         slice.blocker = undefined;
         slice.blockerType = undefined;
         slice.threadId = undefined;
         slice.lastTurnInputTokens = undefined;
-        slice.attempts = 0;
+        if (isWaitNeutralBlocker(slice.blockerType)) prepareSliceAfterWait(slice);
+        else slice.attempts = 0;
+        slice.waitAttemptNeutralized = undefined;
       }
     }
   }
   for (const task of state.tasks) {
-    if (task.status === "waiting" || task.status === "blocked") {
+    if ((task.status === "waiting" || task.status === "blocked") && task.blockerType !== "internal_dependency") {
       task.status = "todo";
       task.blocker = undefined;
       task.blockerType = undefined;
@@ -623,6 +646,8 @@ function freezeSliceAndMilestone(
   slice.blocker = blocker;
   slice.blockerType = blockerType;
   freezeMilestone(state, milestone, blocker, blockerType);
+  // freezeMilestone may promote an agent-reported external dependency to an internal DAG edge.
+  slice.blockerType = milestone.blockerType;
 }
 
 interface HierarchicalResult {
@@ -791,13 +816,23 @@ async function executeHierarchicalMilestone(
     }
 
     slice.status = "running";
+    slice.waitAttemptNeutralized = undefined;
     slice.attempts = Math.max(1, slice.attempts + 1);
     let selection = runner.sliceModel(slice, slice.attempts);
+    const baseSelection = runner.sliceModel(slice, 1);
     console.log(`\n  ▸ ${slice.id}  ${slice.title}`);
     console.log(`    Scope: ${slice.fileScope.join(", ") || "narrow direct dependencies"}`);
     console.log(`    Route: ${slice.complexity}/${slice.risk} | ${slice.crossModule ? "cross-module" : "local"} | ${slice.requiresArchitectureChange ? "architecture-change" : "no-architecture-change"} | decision=${slice.decisionState ?? "open"} | ${slice.criticalDomain ? "critical-domain" : "non-critical-domain"} | ~${slice.estimatedFiles} files | ${slice.verificationBacked ? "verification-backed" : "standard-verification"} | ${slice.lane}`);
     console.log(`    Why: ${runner.sliceRoutingReason(slice)}`);
     console.log(`    AI: ${selection.model} (${selection.reasoningEffort})${selection.escalated ? " [ESCALATED]" : ""}`);
+    if (slice.attempts > 1) {
+      const changedLane = selection.model !== baseSelection.model || selection.reasoningEffort !== baseSelection.reasoningEffort;
+      console.log(
+        changedLane
+          ? `    ↗ Escalated from ${baseSelection.model} (${baseSelection.reasoningEffort}) → ${selection.model} (${selection.reasoningEffort}); reason: ${slice.attempts - 1} previous implementation/gate failure attempt(s).`
+          : `    ↻ Retry ${slice.attempts} keeps ${selection.model} (${selection.reasoningEffort}); reason: previous implementation/gate failure.`,
+      );
+    }
     await saveState(state);
 
     let turn: RunnerResult<SliceResponse> | undefined;
@@ -860,6 +895,9 @@ async function executeHierarchicalMilestone(
 
     if (turn.result.status === "blocked") {
       freezeSliceAndMilestone(state, milestone, slice, turn.result.blocker ?? turn.result.summary, turn.result.blockerType);
+      if (neutralizeSliceWaitAttempt(slice)) {
+        console.log(`    ↩ WAIT is attempt-neutral; ${slice.lane} will resume without model escalation.`);
+      }
       await saveState(state);
       console.log(`    ⛔ WAITING [${slice.blockerType}]: ${slice.blocker}`);
       return { completed: false, newlyDone: 0, budgetStop: false };
@@ -872,6 +910,7 @@ async function executeHierarchicalMilestone(
     while (failed.length > 0 && slice.attempts < maxAttempts) {
       if (gateFailureLooksEnvironmental(gates)) {
         freezeSliceAndMilestone(state, milestone, slice, formatGateFailures(gates), "environment");
+        neutralizeSliceWaitAttempt(slice);
         await saveState(state);
         return { completed: false, newlyDone: 0, budgetStop: false };
       }
@@ -898,6 +937,7 @@ async function executeHierarchicalMilestone(
       state.memory.notes = Array.from(new Set([...state.memory.notes, ...repair.result.followUpNotes]));
       if (repair.result.status === "blocked") {
         freezeSliceAndMilestone(state, milestone, slice, repair.result.blocker ?? repair.result.summary, repair.result.blockerType);
+        neutralizeSliceWaitAttempt(slice);
         await saveState(state);
         return { completed: false, newlyDone: 0, budgetStop: false };
       }
@@ -989,6 +1029,14 @@ export async function runOrchestrator(state: ProjectState, options: RunOptions =
     );
   }
 
+  const dependencyRecovery = reconcileInternalDependencies(state);
+  assertValidDependencyGraph(state.tasks);
+  if (dependencyRecovery.promoted > 0 || dependencyRecovery.parked > 0 || dependencyRecovery.unblocked > 0) {
+    console.log(
+      `↻ Dependency scheduler reconciled ${dependencyRecovery.promoted} runtime waiter(s), parked ${dependencyRecovery.parked} downstream milestone(s), and auto-unblocked ${dependencyRecovery.unblocked} ready milestone(s).`,
+    );
+  }
+
   state.status = "running";
   state.runCount += 1;
   state.projectThreadId = undefined; // v0.4+ never resumes the v0.3 global thread.
@@ -1000,6 +1048,13 @@ export async function runOrchestrator(state: ProjectState, options: RunOptions =
   }
 
   while (completedTasksThisRun < maxTasks && completedMilestonesThisRun < maxMilestones) {
+    const dependencyWake = reconcileInternalDependencies(state);
+    assertValidDependencyGraph(state.tasks);
+    if (dependencyWake.unblocked > 0) {
+      console.log(`↻ Dependency scheduler auto-unblocked ${dependencyWake.unblocked} milestone(s) whose prerequisites completed.`);
+      await saveState(state);
+    }
+
     const budgetBeforeMilestone = runBudgetReason(state, usageAtRunStart, historyAtRunStart, config);
     if (budgetBeforeMilestone) {
       state.status = "idle";
@@ -1070,10 +1125,16 @@ export async function runOrchestrator(state: ProjectState, options: RunOptions =
       await saveState(state);
       await recordMilestoneCost(state, milestone, config.costHistoryMaxRecords);
       console.log(`  ✓ ${milestone.id} completed (${hierarchical.newlyDone} task${hierarchical.newlyDone === 1 ? "" : "s"}) via ${milestone.executionSlices?.length ?? 0} slice(s)`);
+      const dependencyWakeAfterHierarchicalCompletion = reconcileInternalDependencies(state);
+      if (dependencyWakeAfterHierarchicalCompletion.unblocked > 0) {
+        console.log(`  ↻ Dependency scheduler released ${dependencyWakeAfterHierarchicalCompletion.unblocked} downstream milestone(s).`);
+        await saveState(state);
+      }
       continue;
     }
 
     milestone.status = "running";
+    milestone.waitAttemptNeutralized = undefined;
     milestone.attempts += 1;
     milestone.threadId = undefined; // Fresh bounded thread for every milestone execution.
     milestone.lastTurnInputTokens = undefined;
@@ -1170,6 +1231,9 @@ export async function runOrchestrator(state: ProjectState, options: RunOptions =
 
     if (turn.result.status === "blocked") {
       freezeMilestone(state, milestone, turn.result.blocker ?? turn.result.summary, turn.result.blockerType);
+      if (neutralizeMilestoneWaitAttempt(milestone)) {
+        console.log(`  ↩ WAIT is attempt-neutral; milestone will resume without model escalation.`);
+      }
       console.log(`  ⛔ WAITING [${milestone.blockerType}]: ${milestone.blocker}`);
       await refreshMemoryFiles(state, config.memoryMaxChars);
       await saveState(state);
@@ -1187,8 +1251,9 @@ export async function runOrchestrator(state: ProjectState, options: RunOptions =
     while (failed.length > 0 && milestone.attempts < maxAiAttempts) {
       if (gateFailureLooksEnvironmental(gates)) {
         freezeMilestone(state, milestone, formatGateFailures(gates), "environment");
+        neutralizeMilestoneWaitAttempt(milestone);
         repairBlocked = true;
-        console.log("  ⛔ Incremental gate failure is environmental; skipping AI retry.");
+        console.log("  ⛔ Incremental gate failure is environmental; skipping AI retry without consuming an implementation attempt.");
         break;
       }
 
@@ -1221,6 +1286,7 @@ export async function runOrchestrator(state: ProjectState, options: RunOptions =
 
       if (turn.result.status === "blocked") {
         freezeMilestone(state, milestone, turn.result.blocker ?? turn.result.summary, turn.result.blockerType);
+        neutralizeMilestoneWaitAttempt(milestone);
         repairBlocked = true;
         break;
       }
@@ -1262,6 +1328,11 @@ export async function runOrchestrator(state: ProjectState, options: RunOptions =
     await saveState(state);
     await recordMilestoneCost(state, milestone, config.costHistoryMaxRecords);
     console.log(`  ✓ ${milestone.id} completed (${newlyDone} task${newlyDone === 1 ? "" : "s"})`);
+    const dependencyWakeAfterCompletion = reconcileInternalDependencies(state);
+    if (dependencyWakeAfterCompletion.unblocked > 0) {
+      console.log(`  ↻ Dependency scheduler released ${dependencyWakeAfterCompletion.unblocked} downstream milestone(s).`);
+      await saveState(state);
+    }
 
     const hitRunLimit = completedTasksThisRun >= maxTasks || completedMilestonesThisRun >= maxMilestones;
     const hasExecutableWork = executableTaskCount(state) > 0;
@@ -1301,14 +1372,27 @@ export async function runOrchestrator(state: ProjectState, options: RunOptions =
 
   const frozen = frozenMilestones(state);
   if (frozen.length > 0) {
-    const allEnvironment = frozen.every((milestone) => milestone.blockerType === "environment");
+    const internal = frozen.filter((milestone) => milestone.blockerType === "internal_dependency");
+    const actionable = frozen.filter((milestone) => milestone.blockerType !== "internal_dependency");
+
+    const allEnvironment = internal.length === 0 && actionable.length > 0 && actionable.every((milestone) => milestone.blockerType === "environment");
     if (allEnvironment && config.finalValidateEnvironmentWaiters) {
       console.log("\nℹ Only environment-blocked work remains. Trying host-side final validation before asking for intervention.");
       return finalValidation(state, runner, config);
     }
 
-    state.status = "blocked";
-    state.lastMessage = `No executable milestones remain; ${frozen.length} milestone(s) are waiting for external intervention. Use 'mvpx blockers' for details and 'mvpx run --retry-blocked' after resolving them.`;
+    if (actionable.length > 0) {
+      state.status = "blocked";
+      state.lastMessage = `No executable milestones remain; ${actionable.length} milestone(s) require external intervention` +
+        (internal.length > 0 ? ` and ${internal.length} downstream milestone(s) are waiting on those/internal prerequisites` : "") +
+        `. Use 'mvpx blockers' for details and retry only after the external condition is resolved.`;
+      await saveState(state);
+      return state;
+    }
+
+    const detail = internal.map((milestone) => `${milestone.id}→[${unresolvedMilestoneDependencies(state, milestone).join(", ")}]`).join("; ");
+    state.status = "idle";
+    state.lastMessage = `Internal dependency waiters remain but no prerequisite is executable: ${detail}. Check the dependency graph; no user retry was requested.`;
     await saveState(state);
     return state;
   }

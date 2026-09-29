@@ -1,16 +1,15 @@
 # MVPX Roadmap
 
-## v0.4.13 — Fresh Targeted Repairs (stabilization candidate)
+## v0.4.15 — Wait-Neutral Attempts (stabilization candidate)
 
 Goals:
 
-- preserve v0.4.12 execution, routing, slicing, budgeting and evidence-aware classification unchanged;
-- start targeted final-validation repair attempt 1 in a fresh bounded thread instead of inheriting large final-QA context;
-- keep later repair attempts fresh as well, using a compact previous-attempt handoff rather than conversation history;
-- cap repair project-memory handoff independently from normal implementation memory;
-- measure repair cost separately without feeding those observations into implementation planning.
+- execute a validated task DAG rather than priority-only milestone ordering;
+- distinguish internal prerequisites from true external intervention;
+- auto-resume downstream work after prerequisites finish;
+- preserve v0.4.13 routing, slicing, budgeting, validation and repair behavior unchanged.
 
-Exit criterion: run v0.4.13 across several real projects and confirm that final repairs remain focused, resumable and materially cheaper than resumed-thread repairs. If stability holds, freeze 0.4.x and move future architecture work to v0.5.
+Exit criterion: use v0.4.15 across real repositories and confirm that internal prerequisites never require manual retry and that no downstream milestone executes before its declared dependencies. If stable, freeze 0.4.x and move parallel-worktree work to v0.5.
 
 ## v0.4.x — Mission UX / polish
 
@@ -25,7 +24,7 @@ After routing is validated:
 
 Only after adaptive single-worker efficiency is stable:
 
-- dependency graph between work packages;
+- use the stable v0.4.15 single-worker DAG to identify independent work packages;
 - max 2 parallel workers initially;
 - isolated Git worktrees;
 - integration stage;

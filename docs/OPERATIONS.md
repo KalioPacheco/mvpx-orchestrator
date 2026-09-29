@@ -2,7 +2,7 @@
 
 ## Required Node version
 
-MVPX v0.4.13 requires Node.js >= 22.12.
+MVPX v0.4.15 requires Node.js >= 22.12.
 
 Recommended:
 
@@ -191,3 +191,16 @@ If all tasks are complete but a final gate remains unresolved, `mvpx status` rep
 Every targeted final-validation repair prints `[fresh thread]`, including attempt 1. This is intentional. Repair attempts do not resume each other; continuity is supplied by the current failure plus a compact summary of the immediately previous attempt. The default repair memory handoff is 6,000 characters and can be tuned with `finalRepairMemoryMaxChars` independently from `memoryMaxChars`.
 
 `mvpx cost` now includes `FINAL-QA/<gate>#<attempt>` observations. These records are QA telemetry only and are excluded from planner/package cost profiles. A healthy pattern is that repeated targeted repairs remain bounded rather than growing with prior conversation history.
+
+
+## v0.4.14 dependency scheduler
+
+`internal_dependency` means the prerequisite exists in the current MVPX task graph. Do not manually unblock it. `mvpx blockers` shows the unresolved task IDs and MVPX automatically resumes the milestone when they complete.
+
+`external_dependency` means the condition is outside the graph (for example an unavailable third-party service or artifact). Resolve that condition first, then use `mvpx unblock <milestone>` or `--retry-blocked` when appropriate.
+
+The scheduler validates unknown IDs/self-dependencies/cycles and refuses to continue an invalid DAG.
+
+## v0.4.15 wait-neutral retries
+
+When a slice pauses on an internal/external/environment/user-action WAIT, rerun normally after the blocker clears. MVPX preserves the base route and does not charge that pause as an implementation failure. An actual model escalation is always logged with its reason. Existing v0.4.14 dependency waiters are normalized automatically.

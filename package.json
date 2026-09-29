@@ -1,7 +1,7 @@
 {
   "name": "mvpx-orchestrator",
-  "version": "0.4.13",
-  "description": "Cost-aware autonomous orchestration for Codex with bounded planning, adaptive model routing, resumable execution, deterministic validation, and fresh targeted repairs.",
+  "version": "0.4.15",
+  "description": "Dependency-aware, cost-aware autonomous orchestration for Codex with wait-neutral retries, DAG scheduling, bounded execution, adaptive model routing, deterministic validation, and resumable repairs.",
   "private": true,
   "license": "MIT",
   "keywords": [
@@ -33,7 +33,9 @@
     "prepare": "npm run build",
     "selftest:validation": "npm run build && node --test tests/validation-router.test.mjs",
     "selftest:repairs": "npm run build && node --test tests/fresh-repairs.test.mjs",
-    "selftest": "npm run selftest:validation && node --test tests/fresh-repairs.test.mjs"
+    "selftest": "npm run selftest:validation && node --test tests/fresh-repairs.test.mjs && node --test tests/dependency-scheduler.test.mjs && node --test tests/wait-neutral-attempts.test.mjs",
+    "selftest:attempts": "npm run build && node --test tests/wait-neutral-attempts.test.mjs",
+    "selftest:dependencies": "npm run build && node --test tests/dependency-scheduler.test.mjs"
   },
   "engines": {
     "node": ">=22.12.0"

@@ -183,3 +183,25 @@ Final gate classification is root-cause-first. Strong code evidence outranks wea
 Final validation repairs are intentionally stateless at the thread level. Every attempt starts a new Codex thread. The durable handoff is explicit and bounded: a compact project-memory excerpt, current gate failure, deterministic classification/file hints, and (for attempts after the first) the previous repair summary, changed files and decisions. This prevents a failed repair from dragging a large accumulated implementation/final-QA conversation into the next attempt.
 
 Repair memory uses `finalRepairMemoryMaxChars` (default 6,000), separate from the normal 18,000-character project-memory budget. The host reruns only the failed gate after each attempt. Repair token observations are persisted as `validation-repair` cost records for benchmarking, but they are excluded from implementation cost prediction and planner packaging.
+
+
+## v0.4.14 dependency-aware scheduler
+
+The scheduler now treats task prerequisites as a DAG. Each task stores `dependsOnTaskIds`; milestones whose external-to-package task prerequisites are unresolved are parked as `internal_dependency`. The ready queue contains only milestones whose prerequisites are `done` or `superseded`, then applies normal priority ordering.
+
+```text
+TASK-001 ──► TASK-002 ──► TASK-003
+   ready       parked        parked
+     ↓
+TASK-001 done
+                ↓
+             TASK-002 ready
+```
+
+Runtime blocker output can add missing graph edges when it names an in-plan `TASK-*` prerequisite. This converts what older versions treated as an external blocker into an internal wait. Internal waits are re-evaluated locally after every completion and on process restart; no AI call or human retry is needed.
+
+Unknown prerequisite IDs, self-dependencies and cycles fail deterministic graph validation. True dependencies outside the plan remain `external_dependency`.
+
+## v0.4.15 wait-neutral attempts
+
+Retry counters represent implementation/gate failures, not pauses. Dependency, environment, credential, safety and product-decision waits refund the current attempt exactly once. On dependency wake-up, legacy v0.4.14 states are normalized before routing. The selected model must match the base lane unless prior real failures justify an explicitly logged escalation.

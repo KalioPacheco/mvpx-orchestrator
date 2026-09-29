@@ -4,6 +4,7 @@ export type BlockerType =
   | "product_decision"
   | "unsafe_action"
   | "external_dependency"
+  | "internal_dependency"
   | "orchestration_budget"
   | "unknown";
 
@@ -39,6 +40,8 @@ export interface Task {
   blocker?: string;
   blockerType?: BlockerType;
   changedFiles?: string[];
+  // Explicit DAG prerequisites. A task is ready only after these task IDs are done/superseded.
+  dependsOnTaskIds?: string[];
   // Legacy compatibility only. v0.4+ never resumes v0.2/v0.3 task threads.
   threadId?: string;
 }
@@ -78,6 +81,8 @@ export interface ExecutionSlice {
   checkpointId?: string;
   threadId?: string;
   lastTurnInputTokens?: number;
+  // v0.4.15: true when a WAIT already refunded the current model attempt.
+  waitAttemptNeutralized?: boolean;
 }
 
 export interface Milestone {
@@ -117,6 +122,8 @@ export interface Milestone {
   predictedInputTokens?: number;
   // v0.4.10 slice-plan semantics. Missing/<4 indicates a pre decision-complete plan.
   slicePlanVersion?: number;
+  // v0.4.15: true when a WAIT already refunded the current model attempt.
+  waitAttemptNeutralized?: boolean;
 }
 
 export interface GateResult {
@@ -183,7 +190,7 @@ export interface ProjectState {
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra" | "persistent";
 
 export interface ProjectConfig {
-  configVersion: 11;
+  configVersion: 13;
   maxRetries: number;
   maxTasksPerRun: number;
   maxMilestonesPerRun: number;

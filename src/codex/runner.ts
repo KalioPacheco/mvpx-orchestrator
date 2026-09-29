@@ -23,6 +23,7 @@ interface PlanTask {
   description: string;
   priority: number;
   acceptanceCriteria: string[];
+  dependsOnTaskIds: string[];
 }
 
 export interface PlanMilestone {
@@ -161,6 +162,7 @@ function compactTasks(tasks: Task[]): string {
     blocker: task.blocker,
     blockerType: task.blockerType,
     acceptanceCriteria: task.acceptanceCriteria,
+    dependsOnTaskIds: task.dependsOnTaskIds ?? [],
   })).map((task) => JSON.stringify(task)).join("\n");
 }
 
@@ -664,6 +666,8 @@ export class CodexRunner {
       `Mark SIMPLE only when the acceptance criteria are explicit, the change is local/low-risk, it does not alter architecture/contracts/permissions/security, and it should touch few files. ` +
       `NORMAL is the safe default. COMPLEX/CRITICAL are for cross-cutting architecture, auth/RBAC, data contracts, high-frequency transactional flows, migrations, or other high-risk changes. ` +
       `The metadata controls model routing, so under-classifying complexity to save tokens is incorrect. ` +
+      `For EVERY task include dependsOnTaskIds. Use [] when independent. Dependencies must reference existing TASK-* IDs, form an acyclic graph, and describe true execution prerequisites (contracts/files/bootstrap required before this task can run), not mere preferred ordering. ` +
+      `The scheduler will execute only dependency-ready work, so foundational tasks must be prerequisites of work that consumes their outputs. ` +
       `For every milestone provide fileScope: a short list of repository directories/files/globs the implementer should inspect first. Make it narrow but sufficient. ` +
       (this.costProfile ? `\n\nCOST-AWARE PACKAGING HISTORY:\n${this.costProfile}\n\n` : "") +
       `Preserve any explicitly requested skill or workflow (for example ui-craft) as a requirement in the relevant milestone descriptions. ` +
@@ -691,6 +695,7 @@ export class CodexRunner {
       `Inspect only repository areas necessary to reconcile executable work with the current code. ` +
       `Create cost-aware work packages. Simple/normal may contain at most ${this.config.maxTasksPerMilestone} closely related task(s); complex/critical, cross-module, architectural, or broad work should contain exactly 1 task. ` +
       `Every milestone must include fileScope, complexity, risk, crossModule, requiresArchitectureChange, and estimatedFiles. Use NORMAL when uncertain; SIMPLE is reserved for clearly local, low-risk, non-architectural work. ` +
+      `Every task must include dependsOnTaskIds using existing TASK-* IDs. Preserve known prerequisites, add newly discovered internal prerequisites, use [] when independent, and never create cycles. ` +
       (this.costProfile ? `\n\nCOST-AWARE PACKAGING HISTORY:\n${this.costProfile}\n\n` : "") +
       `Every milestone must include a narrow fileScope of likely files/directories/globs so the implementer does not rediscover the whole repository. ` +
       `Preserve existing task IDs whenever a task still exists. If an executable task became unnecessary because earlier work already solved it, list its ID in supersededTaskIds. ` +
@@ -764,6 +769,7 @@ export class CodexRunner {
       `ACCEPTANCE:\n${slice.acceptanceCriteria.map((c) => `- ${c}`).join("\n")}\n\n` + previous +
       `ROUTING: complexity=${slice.complexity}, risk=${slice.risk}, crossModule=${slice.crossModule}, architectureChange=${slice.requiresArchitectureChange}, estimatedFiles=${slice.estimatedFiles}, decisionState=${slice.decisionState ?? "open"}, decisionSummary=${slice.decisionSummary ?? ""}, criticalDomain=${Boolean(slice.criticalDomain)}, criticalDomainReason=${slice.criticalDomainReason ?? ""}, atomic=${Boolean(slice.atomic)}, atomicReason=${slice.atomicReason ?? ""}, verificationBacked=${Boolean(slice.verificationBacked)}, verificationEvidence=${(slice.verificationEvidence ?? []).join(" | ") || "none"}. ` +
       `Implement only this slice. Prefer direct edits. Leave scope only for a concrete direct dependency. Do not run the full suite; MVPX runs host-side gates. ` +
+      `If you cannot continue ONLY because another MVPX task must complete first, return blocked with blockerType=internal_dependency and name every prerequisite TASK-* ID in blocker. Do not call an in-plan prerequisite an external dependency. ` +
       `Do not commit, push, alter secrets, install global/system packages, deploy, or perform destructive Git operations.`;
     return this.runGuarded<SliceResponse>(thread, prompt, sliceResultSchema, selection);
   }
@@ -797,7 +803,8 @@ export class CodexRunner {
       `Do not run the full project validation suite; MVPX executes deterministic host-side gates after you finish. Run only a targeted cheap command if it is needed to make a coding decision. ` +
       `If browser/server validation cannot bind localhost inside the sandbox, do not retry it repeatedly. ` +
       `Do not commit, push, alter secrets, install global/system packages, deploy, or perform destructive Git operations. ` +
-      `Return blocked only for a real external dependency, credential, unsafe action, environment limitation, or product decision that cannot be safely inferred. ` +
+      `If another MVPX TASK-* must complete first, return blocked with blockerType=internal_dependency and include those task IDs in blocker; MVPX will schedule and auto-resume it. ` +
+      `Return external_dependency only for something outside the current MVPX task graph. Return other blocked states only for a real credential, unsafe action, environment limitation, or product decision that cannot be safely inferred. ` +
       `Record only durable architectural/product decisions in decisions and concise information useful to later work in followUpNotes. ` +
       `Set replanRecommended=true only if this work materially invalidates assumptions of remaining tasks.`;
 

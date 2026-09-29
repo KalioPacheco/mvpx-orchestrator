@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { inferBlockerType } from "../blockers.js";
+import { assertValidDependencyGraph, reconcileInternalDependencies } from "../dependencies.js";
 import type { Milestone, ProjectConfig, ProjectMemoryState, ProjectState, Task, UsageTotals } from "../types.js";
 
 const DIR = ".mvpx";
@@ -45,6 +46,7 @@ function normalizeLegacyTask(task: Task): Task {
     ...task,
     status: waiting ? "waiting" : task.status,
     blockerType,
+    dependsOnTaskIds: Array.from(new Set(task.dependsOnTaskIds ?? [])),
     threadId: undefined,
   };
 }
@@ -171,7 +173,10 @@ export async function loadState(root: string): Promise<ProjectState | null> {
       state.memory.decisions ??= [];
       state.memory.notes ??= [];
       state.projectThreadId = undefined;
+      state.tasks = state.tasks.map(normalizeLegacyTask);
       state.milestones = state.milestones.map(normalizeLegacyMilestone);
+      reconcileInternalDependencies(state);
+      assertValidDependencyGraph(state.tasks);
       const executableRemaining = state.tasks.some((task) => task.status === "todo" || task.status === "failed" || task.status === "running");
       if (state.status === "blocked" && !executableRemaining && /^Final validation\b/i.test(state.lastMessage ?? "")) {
         state.status = "validation_pending";
@@ -196,7 +201,7 @@ export async function saveConfig(root: string, config: ProjectConfig): Promise<v
 
 export async function loadConfig(root: string): Promise<ProjectConfig> {
   const defaults: ProjectConfig = {
-    configVersion: 11,
+    configVersion: 13,
     maxRetries: 3,
     maxTasksPerRun: 20,
     maxMilestonesPerRun: 8,
@@ -297,7 +302,7 @@ export async function loadConfig(root: string): Promise<ProjectConfig> {
     const migrated: ProjectConfig = {
       ...defaults,
       ...current,
-      configVersion: 11,
+      configVersion: 13,
       adaptiveImplementerRouting: current.adaptiveImplementerRouting ?? defaults.adaptiveImplementerRouting,
       simpleImplementerModel: current.simpleImplementerModel ?? defaults.simpleImplementerModel,
       simpleImplementerReasoningEffort: current.simpleImplementerReasoningEffort ?? defaults.simpleImplementerReasoningEffort,
