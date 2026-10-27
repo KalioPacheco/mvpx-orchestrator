@@ -15,8 +15,8 @@ importers:
         specifier: ^15.0.0
         version: 15.0.0
       execa:
-        specifier: ^10.0.1
-        version: 10.0.1
+        specifier: ^10.2.1
+        version: 10.2.1
     devDependencies:
       '@types/node':
         specifier: ^24.0.0
@@ -250,8 +250,8 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  execa@10.0.1:
-    resolution: {integrity: sha512-ge98qjkRK4IB7tL7Ju/6qmm5LHoH1eEMt5FNZrz3f4UIYhF28lggX20z3FaX1sgc67msLEn0N0BscOs29iuwyw==}
+  execa@10.2.1:
+    resolution: {integrity: sha512-/Bofl3ZBh2Q4/PG0W63qFzP5vDAypi8Zc90UWTBzaDNIYiX7apPOd0N6L8hG8CojUdq4V51adu8BObP+iVsSTw==}
     engines: {node: '>=22'}
 
   figures@6.1.0:
@@ -483,7 +483,7 @@ snapshots:
       '@esbuild/win32-ia32': 0.28.2
       '@esbuild/win32-x64': 0.28.2
 
-  execa@10.0.1:
+  execa@10.2.1:
     dependencies:
       '@sindresorhus/merge-streams': 4.0.0
       figures: 6.1.0
