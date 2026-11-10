@@ -12,8 +12,8 @@ importers:
         specifier: ^0.156.1
         version: 0.156.1
       commander:
-        specifier: ^15.0.0
-        version: 15.0.0
+        specifier: ^15.1.0
+        version: 15.1.0
       execa:
         specifier: ^10.0.1
         version: 10.0.1
@@ -241,8 +241,8 @@ packages:
   '@types/node@24.13.6':
     resolution: {integrity: sha512-SGrw/h3KPFshy3OE6ZL53LMBG5vGQQ8/gIpiqz/kRZhPJ7HgwCEs8LBuNtWLa8dvGZVpSF7+Bf+c11HUrCb/yg==}
 
-  commander@15.0.0:
-    resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
+  commander@15.1.0:
+    resolution: {integrity: sha512-cgnQ88TRrWcC7pVq46RzJVRMktu3W2RcbnoidnfBsl1bmDCBwJS/udcIZpKoCrbAYYaCqsz1yZCVIgbIaU3ddQ==}
     engines: {node: '>=22.12.0'}
 
   esbuild@0.28.2:
@@ -452,7 +452,7 @@ snapshots:
     dependencies:
       undici-types: 7.18.2
 
-  commander@15.0.0: {}
+  commander@15.1.0: {}
 
   esbuild@0.28.2:
     optionalDependencies:
